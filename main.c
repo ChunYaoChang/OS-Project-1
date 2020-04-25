@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #define FIFO 1
 #define RR 2
 #define SJF 3
@@ -51,14 +52,20 @@ void sleep_process(int pid)
     sched_setscheduler(pid, SCHED_IDLE, &param);
 }
 
+void unit_time()
+{
+    volatile unsigned long i;
+	for (i = 0; i < 1000000UL; i++);	
+}
+
 int create_process(Process pr)
 {
     int pid = fork();
     /* child process */
     if (pid == 0)
     {
-        int start_time, start_ntime;
-        int end_time, end_ntime;
+        unsigned long int start_time, start_ntime;
+        unsigned long int end_time, end_ntime;
         char dmesg_infor[128];
         int tmp = syscall(MY_TIME, &start_time, &start_ntime);
         for (int i = 0; i < pr.exec_time; i++)
@@ -77,15 +84,9 @@ int create_process(Process pr)
     return pid;
 }
 
-void unit_time()
-{
-    volatile unsigned long i;
-	for (i = 0; i < 1000000UL; i++);	
-}
-
 int cmp(const void *a, const void *b)
 {
-    return ((Process *)(a)->ready_time - (Process *)(b)->ready_time);
+    return (((Process *)a)->ready_time - ((Process *)b)->ready_time);
 }
 
 int select_next_process(Process *proc, int num_procs, int policy)
@@ -123,8 +124,10 @@ int select_next_process(Process *proc, int num_procs, int policy)
         {
             for (int i = 0; i < num_procs; i++)
                 if (proc[i].pid != -1 && proc[i].exec_time > 0)
+                {
                     selected_proc = i;
                     break;
+                }
         }
         /* else if time_quantum expired, choose next ready and unfinish process */
         else if ((now_time - context_switch_time) % 500 == 0)
@@ -133,9 +136,9 @@ int select_next_process(Process *proc, int num_procs, int policy)
             while (proc[selected_proc].pid != -1 || proc[selected_proc].exec_time == 0)
                 selected_proc++;
         }
-        else select = running;
+        else selected_proc = running_procs;
     }
-    return running
+    return running_procs;
 }
 
 int schedule(Process *proc, int num_procs, int policy)
