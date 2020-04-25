@@ -35,7 +35,7 @@ void assign_cpu(int pid, int mode)
     cpu_set_t mask;
     CPU_ZERO(&mask);
     CPU_SET(mode, &mask);
-    sched_setaffinity(mode, sizeof(mask), &mask);
+    sched_setaffinity(pid, sizeof(mask), &mask);
 }
 
 void invoke_process(int pid)
@@ -68,20 +68,25 @@ int create_process(Process pr)
         unsigned long int end_time, end_ntime;
         char dmesg_infor[128];
         int tmp = syscall(MY_TIME, &start_time, &start_ntime);
+        // printf("%d\n", tmp);
         for (int i = 0; i < pr.exec_time; i++)
         {
             unit_time();
+            // if (i % 100) printf("%d\n", i);
         }
+        // printf("%d %d\n", start_time, start_ntime);
         tmp = syscall(MY_TIME, &end_time, &end_ntime);
-        sprintf(dmesg_infor, "[Project1] %d %lu.%09lu %lu.%09lu", pr.pid, start_time, start_ntime, end_time, end_ntime);
+        sprintf(dmesg_infor, "[Project1] %d %lu.%09lu %lu.%09lu", getpid(), start_time, start_ntime, end_time, end_ntime);
         syscall(MY_PRINTK, dmesg_infor);
+        // printf("%s\n", dmesg_infor);
+        exit(0);
     }
     /* parent process */
     else
     {
         assign_cpu(pid, CHILD_CPU);
+        return pid;
     }
-    return pid;
 }
 
 int cmp(const void *a, const void *b)
@@ -95,14 +100,14 @@ int select_next_process(Process *proc, int num_procs, int policy)
     if (running_procs != -1 && (policy == SJF || policy == FIFO))
         return running_procs;
 
-    int selected_proc = 0;
+    int selected_proc = -1;
     /* PSJF SJF */
     if (policy == PSJF || policy == SJF)
     {
         for (int i = 0; i < num_procs; i++)
         {
             if (proc[i].pid == -1 || proc[i].exec_time == 0) continue;
-            if (proc[i].exec_time < proc[selected_proc].exec_time)
+            if (selected_proc == -1 || proc[i].exec_time < proc[selected_proc].exec_time)
                 selected_proc = i;
         }
     }
@@ -112,7 +117,7 @@ int select_next_process(Process *proc, int num_procs, int policy)
         for (int i = 0; i < num_procs; i++)
         {
             if (proc[i].pid == -1 || proc[i].exec_time == 0) continue;
-            if (proc[i].ready_time < proc[selected_proc].ready_time)
+            if (selected_proc == -1 || proc[i].ready_time < proc[selected_proc].ready_time)
                 selected_proc = i;
         }
     }
@@ -132,13 +137,16 @@ int select_next_process(Process *proc, int num_procs, int policy)
         /* else if time_quantum expired, choose next ready and unfinish process */
         else if ((now_time - context_switch_time) % 500 == 0)
         {
-            selected_proc = running_procs + 1;
-            while (proc[selected_proc].pid != -1 || proc[selected_proc].exec_time == 0)
-                selected_proc++;
+            selected_proc = (running_procs + 1) % num_procs;
+            while (proc[selected_proc].pid == -1 || proc[selected_proc].exec_time == 0)
+            {
+                if (selected_proc == running_procs) break;
+                selected_proc = (selected_proc + 1) % num_procs;
+            }
         }
         else selected_proc = running_procs;
     }
-    return running_procs;
+    return selected_proc;
 }
 
 int schedule(Process *proc, int num_procs, int policy)
@@ -156,7 +164,7 @@ int schedule(Process *proc, int num_procs, int policy)
 
     while(1)
     {
-        /* if there's process running, wait it */
+        /* if there's process finish, wait it */
         if (running_procs != -1 && proc[running_procs].exec_time == 0)
         {
             waitpid(proc[running_procs].pid, NULL, 0);
@@ -170,12 +178,14 @@ int schedule(Process *proc, int num_procs, int policy)
         {
             if (proc[i].ready_time == now_time)
             {
-                proc[i].pid == create_process(proc[i]);
+                proc[i].pid = create_process(proc[i]);
                 sleep_process(proc[i].pid);
+                // printf("%s, pid = %d\n", proc[i].name, proc[i].pid);
             }
         }
         /* select next process to run */
         int next_procs = select_next_process(proc, num_procs, policy);
+        // if (now_time % 100 == 0) printf("now_time = %d, next_procs = %d\n", now_time, next_procs);
         if (next_procs != -1)
         {
             if (next_procs != running_procs)
@@ -189,6 +199,7 @@ int schedule(Process *proc, int num_procs, int policy)
         unit_time();
         if (running_procs != -1) proc[running_procs].exec_time--;
         now_time++;
+        // if (now_time % 100 == 0) printf("%s %d\n", proc[running_procs].name, proc[running_procs].exec_time);
     }
 }
 
