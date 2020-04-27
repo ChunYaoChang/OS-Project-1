@@ -21,6 +21,7 @@ int running_procs;
 int now_time;
 int finish_procs;
 int context_switch_time;
+static int lock = 0;
 
 typedef struct process
 {
@@ -29,6 +30,12 @@ typedef struct process
     int exec_time;
     pid_t pid;
 } Process;
+
+static void unlock()
+{
+    // printf("fuck\n");
+    lock = 1;
+}
 
 void assign_cpu(int pid, int mode)
 {
@@ -64,6 +71,7 @@ int create_process(Process pr)
     /* child process */
     if (pid == 0)
     {
+        while (lock == 0);
         unsigned long int start_time, start_ntime;
         unsigned long int end_time, end_ntime;
         char dmesg_infor[128];
@@ -72,11 +80,11 @@ int create_process(Process pr)
         for (int i = 0; i < pr.exec_time; i++)
         {
             unit_time();
-            // if (i % 100) printf("%d\n", i);
+            // if (i % 100 == 0) printf("child process\n");
         }
         // printf("%d %d\n", start_time, start_ntime);
         tmp = syscall(MY_TIME, &end_time, &end_ntime);
-        sprintf(dmesg_infor, "[Project1] %d %lu.%09lu %lu.%09lu", getpid(), start_time, start_ntime, end_time, end_ntime);
+        sprintf(dmesg_infor, "[Project1] %d %lu.%09lu %lu.%09lu\n", getpid(), start_time, start_ntime, end_time, end_ntime);
         syscall(MY_PRINTK, dmesg_infor);
         // printf("%s\n", dmesg_infor);
         exit(0);
@@ -169,6 +177,7 @@ int schedule(Process *proc, int num_procs, int policy)
         {
             waitpid(proc[running_procs].pid, NULL, 0);
             printf("%s %d\n", proc[running_procs].name, proc[running_procs].pid);
+            fflush(stdout);
             running_procs = -1;
             finish_procs++;
             if (finish_procs == num_procs) break;
@@ -190,8 +199,9 @@ int schedule(Process *proc, int num_procs, int policy)
         {
             if (next_procs != running_procs)
             {
-                invoke_process(proc[next_procs].pid);
                 sleep_process(proc[running_procs].pid);
+                kill(proc[next_procs].pid, SIGUSR1);
+                invoke_process(proc[next_procs].pid);
                 running_procs = next_procs;
                 context_switch_time = now_time;
             }
@@ -199,7 +209,7 @@ int schedule(Process *proc, int num_procs, int policy)
         unit_time();
         if (running_procs != -1) proc[running_procs].exec_time--;
         now_time++;
-        // if (now_time % 100 == 0) printf("%s %d\n", proc[running_procs].name, proc[running_procs].exec_time);
+        // if (now_time % 100 == 0) printf("scheduler\n");
     }
 }
 
@@ -222,5 +232,7 @@ int main(int argc, char *argv[])
     for (int i = 0; i < num_procs; i++)
         scanf("%s%d%d", proc[i].name, &proc[i].ready_time, &proc[i].exec_time);
 
+    signal(SIGUSR1, unlock);
     schedule(proc, num_procs, policy);
+    exit(0);
 }
