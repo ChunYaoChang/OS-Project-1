@@ -33,7 +33,6 @@ typedef struct process
 
 static void unlock()
 {
-    // printf("fuck\n");
     lock = 1;
 }
 
